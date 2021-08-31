@@ -1,16 +1,22 @@
 package sectorstorage
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/cgroups"
+	cgroupv2 "github.com/containerd/cgroups/v2"
 	"github.com/elastic/go-sysinfo"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
@@ -482,6 +488,153 @@ func (l *LocalWorker) Paths(ctx context.Context) ([]stores.StoragePath, error) {
 	return l.localStore.Local(ctx)
 }
 
+func cgroupV2MountPoint() (string, error) {
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := bytes.Fields(scanner.Bytes())
+		if len(fields) >= 9 && bytes.Equal(fields[8], []byte("cgroup2")) {
+			return string(fields[4]), nil
+		}
+	}
+	return "", cgroups.ErrMountPointNotExist
+}
+
+func cgroupV1Mem() (memoryMax, memoryUsed, swapMax, swapUsed uint64, err error) {
+	path := cgroups.NestedPath("")
+	if pid := os.Getpid(); pid == 1 {
+		path = cgroups.RootPath
+	}
+	c, err := cgroups.Load(cgroups.SingleSubsystem(cgroups.V1, cgroups.Memory), path)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	stats, err := c.Stat()
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if stats.Memory == nil {
+		return 0, 0, 0, 0, nil
+	}
+	if stats.Memory.Usage != nil {
+		memoryMax = stats.Memory.Usage.Limit
+		memoryUsed = stats.Memory.Usage.Usage
+	}
+	if stats.Memory.Swap != nil {
+		swapMax = stats.Memory.Swap.Limit
+		swapUsed = stats.Memory.Swap.Usage
+	}
+	return memoryMax, memoryUsed, swapMax, swapUsed, nil
+}
+
+func cgroupV2MemFromPath(mp, path string) (memoryMax, memoryUsed, swapMax, swapUsed uint64, err error) {
+	c, err := cgroupv2.LoadManager(mp, path)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+
+	stats, err := c.Stat()
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+
+	if stats.Memory != nil {
+		memoryMax = stats.Memory.UsageLimit
+		memoryUsed = stats.Memory.Usage
+		swapMax = stats.Memory.SwapLimit
+		swapUsed = stats.Memory.SwapUsage
+	}
+
+	return memoryMax, memoryUsed, swapMax, swapUsed, nil
+}
+
+func cgroupV2Mem() (memoryMax, memoryUsed, swapMax, swapUsed uint64, err error) {
+	memoryMax = math.MaxUint64
+	swapMax = math.MaxUint64
+
+	path, err := cgroupv2.PidGroupPath(os.Getpid())
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+
+	mp, err := cgroupV2MountPoint()
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+
+	for path != "/" {
+		cgMemoryMax, cgMemoryUsed, cgSwapMax, cgSwapUsed, err := cgroupV2MemFromPath(mp, path)
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+		if cgMemoryMax != 0 && cgMemoryMax < memoryMax {
+			log.Debugf("memory limited by cgroup %s: %v", path, cgMemoryMax)
+			memoryMax = cgMemoryMax
+			memoryUsed = cgMemoryUsed
+		}
+		if cgSwapMax != 0 && cgSwapMax < swapMax {
+			log.Debugf("swap limited by cgroup %s: %v", path, cgSwapMax)
+			swapMax = cgSwapMax
+			swapUsed = cgSwapUsed
+		}
+		path = filepath.Dir(path)
+	}
+
+	return memoryMax, memoryUsed, swapMax, swapUsed, nil
+}
+
+func (l *LocalWorker) memInfo() (memPhysical uint64, memVirtual uint64, memReserved uint64, err error) {
+	h, err := sysinfo.Host()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	mem, err := h.Memory()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	memPhysical = mem.Total
+	memAvail := mem.Free
+	memSwap := mem.VirtualTotal
+	swapAvail := mem.VirtualFree
+
+	if cgMemMax, cgMemUsed, cgSwapMax, cgSwapUsed, err := cgroupV1Mem(); err == nil {
+		if cgMemMax > 0 && cgMemMax < memPhysical {
+			memPhysical = cgMemMax
+			memAvail = cgMemMax - cgMemUsed
+		}
+		if cgSwapMax > 0 && cgSwapMax < memSwap {
+			memSwap = cgSwapMax
+			swapAvail = cgSwapMax - cgSwapUsed
+		}
+	}
+
+	if cgMemMax, cgMemUsed, cgSwapMax, cgSwapUsed, err := cgroupV2Mem(); err == nil {
+		if cgMemMax > 0 && cgMemMax < memPhysical {
+			memPhysical = cgMemMax
+			memAvail = cgMemMax - cgMemUsed
+		}
+		if cgSwapMax > 0 && cgSwapMax < memSwap {
+			memSwap = cgSwapMax
+			swapAvail = cgSwapMax - cgSwapUsed
+		}
+	}
+
+	if l.noSwap {
+		memSwap = 0
+		swapAvail = 0
+	}
+
+	memReserved = memPhysical + memSwap - memAvail - swapAvail
+
+	return memPhysical, memSwap, memReserved, nil
+}
+
 func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 	hostname, err := os.Hostname() // TODO: allow overriding from config
 	if err != nil {
@@ -493,28 +646,18 @@ func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 		log.Errorf("getting gpu devices failed: %+v", err)
 	}
 
-	h, err := sysinfo.Host()
-	if err != nil {
-		return storiface.WorkerInfo{}, xerrors.Errorf("getting host info: %w", err)
-	}
-
-	mem, err := h.Memory()
+	memPhysical, memSwap, memReserved, err := l.memInfo()
 	if err != nil {
 		return storiface.WorkerInfo{}, xerrors.Errorf("getting memory info: %w", err)
-	}
-
-	memSwap := mem.VirtualTotal
-	if l.noSwap {
-		memSwap = 0
 	}
 
 	return storiface.WorkerInfo{
 		Hostname:        hostname,
 		IgnoreResources: l.ignoreResources,
 		Resources: storiface.WorkerResources{
-			MemPhysical: mem.Total,
+			MemPhysical: memPhysical,
 			MemSwap:     memSwap,
-			MemReserved: mem.VirtualUsed + mem.Total - mem.Available, // TODO: sub this process
+			MemReserved: memReserved,
 			CPUs:        uint64(runtime.NumCPU()),
 			GPUs:        gpus,
 		},
