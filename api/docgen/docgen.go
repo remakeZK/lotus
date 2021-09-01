@@ -238,7 +238,7 @@ func init() {
 			Enabled:    true,
 			MemUsedMin: 0,
 			MemUsedMax: 0,
-			GpuUsed:    false,
+			GpuUsed:    0,
 			CpuUse:     0,
 		},
 	})
