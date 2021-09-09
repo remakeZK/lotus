@@ -523,7 +523,8 @@ func cgroupV1Mem() (memoryMax, memoryUsed, swapMax, swapUsed uint64, err error) 
 	}
 	if stats.Memory.Usage != nil {
 		memoryMax = stats.Memory.Usage.Limit
-		memoryUsed = stats.Memory.Usage.Usage
+		// Exclude cached files
+		memoryUsed = stats.Memory.Usage.Usage - stats.Memory.InactiveFile - stats.Memory.ActiveFile
 	}
 	if stats.Memory.Swap != nil {
 		swapMax = stats.Memory.Swap.Limit
@@ -545,7 +546,8 @@ func cgroupV2MemFromPath(mp, path string) (memoryMax, memoryUsed, swapMax, swapU
 
 	if stats.Memory != nil {
 		memoryMax = stats.Memory.UsageLimit
-		memoryUsed = stats.Memory.Usage
+		// Exclude memory used caching files
+		memoryUsed = stats.Memory.Usage - stats.Memory.File
 		swapMax = stats.Memory.SwapLimit
 		swapUsed = stats.Memory.SwapUsage
 	}
@@ -588,51 +590,50 @@ func cgroupV2Mem() (memoryMax, memoryUsed, swapMax, swapUsed uint64, err error) 
 	return memoryMax, memoryUsed, swapMax, swapUsed, nil
 }
 
-func (l *LocalWorker) memInfo() (memPhysical uint64, memVirtual uint64, memReserved uint64, err error) {
+func (l *LocalWorker) memInfo() (memPhysical, memUsed, memSwap, memSwapUsed uint64, err error) {
 	h, err := sysinfo.Host()
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 
 	mem, err := h.Memory()
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	memPhysical = mem.Total
-	memAvail := mem.Free
-	memSwap := mem.VirtualTotal
-	swapAvail := mem.VirtualFree
+	// mem.Available is memory available without swapping, it is more relevant for this calculation
+	memUsed = mem.Total - mem.Available
+	memSwap = mem.VirtualTotal
+	memSwapUsed = mem.VirtualUsed
 
 	if cgMemMax, cgMemUsed, cgSwapMax, cgSwapUsed, err := cgroupV1Mem(); err == nil {
 		if cgMemMax > 0 && cgMemMax < memPhysical {
 			memPhysical = cgMemMax
-			memAvail = cgMemMax - cgMemUsed
+			memUsed = cgMemUsed
 		}
 		if cgSwapMax > 0 && cgSwapMax < memSwap {
 			memSwap = cgSwapMax
-			swapAvail = cgSwapMax - cgSwapUsed
+			memSwapUsed = cgSwapUsed
 		}
 	}
 
 	if cgMemMax, cgMemUsed, cgSwapMax, cgSwapUsed, err := cgroupV2Mem(); err == nil {
 		if cgMemMax > 0 && cgMemMax < memPhysical {
 			memPhysical = cgMemMax
-			memAvail = cgMemMax - cgMemUsed
+			memUsed = cgMemUsed
 		}
 		if cgSwapMax > 0 && cgSwapMax < memSwap {
 			memSwap = cgSwapMax
-			swapAvail = cgSwapMax - cgSwapUsed
+			memSwapUsed = cgSwapUsed
 		}
 	}
 
 	if l.noSwap {
 		memSwap = 0
-		swapAvail = 0
+		memSwapUsed = 0
 	}
 
-	memReserved = memPhysical + memSwap - memAvail - swapAvail
-
-	return memPhysical, memSwap, memReserved, nil
+	return memPhysical, memUsed, memSwap, memSwapUsed, nil
 }
 
 func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
@@ -646,7 +647,7 @@ func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 		log.Errorf("getting gpu devices failed: %+v", err)
 	}
 
-	memPhysical, memSwap, memReserved, err := l.memInfo()
+	memPhysical, memUsed, memSwap, memSwapUsed, err := l.memInfo()
 	if err != nil {
 		return storiface.WorkerInfo{}, xerrors.Errorf("getting memory info: %w", err)
 	}
@@ -656,8 +657,9 @@ func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 		IgnoreResources: l.ignoreResources,
 		Resources: storiface.WorkerResources{
 			MemPhysical: memPhysical,
+			MemUsed:     memUsed,
 			MemSwap:     memSwap,
-			MemReserved: memReserved,
+			MemSwapUsed: memSwapUsed,
 			CPUs:        uint64(runtime.NumCPU()),
 			GPUs:        gpus,
 		},
