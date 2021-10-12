@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin"
+	lcli "github.com/filecoin-project/lotus/cli"
 
 	miner2 "github.com/filecoin-project/specs-actors/v2/actors/builtin/miner"
 
@@ -41,7 +42,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/tools/stats"
+	"github.com/filecoin-project/lotus/tools/stats/sync"
 )
 
 var log = logging.Logger("main")
@@ -161,6 +162,7 @@ var findMinersCmd = &cli.Command{
 	Action: func(cctx *cli.Context) error {
 		ctx := context.Background()
 		api, closer, err := stats.GetFullNodeAPI(cctx.Context, cctx.String("lotus-path"))
+		api, closer, err := lcli.GetFullNodeAPI(cctx)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -453,7 +455,7 @@ var runCmd = &cli.Command{
 			}
 		}
 
-		tipsetsCh, err := stats.GetTips(ctx, api, r.Height(), cctx.Int("head-delay"))
+		tipsetsCh, err := sync.BufferedTipsetChannel(ctx, api, r.Height(), cctx.Int("head-delay"))
 		if err != nil {
 			log.Fatal(err)
 		}
