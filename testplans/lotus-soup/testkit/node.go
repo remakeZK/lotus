@@ -17,7 +17,11 @@ import (
 	"github.com/filecoin-project/lotus/node"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	modtest "github.com/filecoin-project/lotus/node/modules/testing"
-	tstats "github.com/filecoin-project/lotus/tools/stats"
+
+	tinflux "github.com/filecoin-project/lotus/tools/stats/influx"
+	tipldstore "github.com/filecoin-project/lotus/tools/stats/ipldstore"
+	tpoint "github.com/filecoin-project/lotus/tools/stats/points"
+	tsync "github.com/filecoin-project/lotus/tools/stats/sync"
 
 	influxdb "github.com/kpacha/opencensus-influxdb"
 	ma "github.com/multiformats/go-multiaddr"
@@ -234,7 +238,7 @@ func collectStats(t *TestEnvironment, ctx context.Context, api api.FullNode) err
 	influxPass := ""
 	influxDb := "testground"
 
-	influx, err := tstats.InfluxClient(influxAddr, influxUser, influxPass)
+	influxClient, err := tinflux.NewClient(influxAddr, influxUser, influxPass)
 	if err != nil {
 		t.RecordMessage(err.Error())
 		return err
@@ -246,7 +250,34 @@ func collectStats(t *TestEnvironment, ctx context.Context, api api.FullNode) err
 	go func() {
 		time.Sleep(15 * time.Second)
 		t.RecordMessage("calling tstats.Collect")
-		tstats.Collect(context.Background(), &v0api.WrapperV1Full{FullNode: api}, influx, influxDb, height, headlag)
+
+		store, err := tipldstore.NewApiIpldStore(ctx, api, 1024)
+		if err != nil {
+			return err
+		}
+
+		collector, err := tpoints.NewChainPointCollector(ctx, store, api)
+		if err != nil {
+			return err
+		}
+
+		tipsets, err := tsync.BufferedTipsetChannel(ctx, api, abi.ChainEpoch(height), headlag)
+		if err != nil {
+			return err
+		}
+
+		wq := tinflux.NewWriteQueue(ctx, influxClient)
+		defer wq.Close()
+
+		for tipset := range tipsets {
+			if nb, err := collector.Collect(ctx, tipset); err != nil {
+				t.RecordMessage(err.Error())
+			} else {
+				nb.SetDatabase(influxDatabaseFlag)
+				wq.AddBatch(nb)
+			}
+		}
+
 	}()
 
 	return nil
