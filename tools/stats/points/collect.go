@@ -96,15 +96,15 @@ func (c *ChainPointCollector) Collect(ctx context.Context, tipset *types.TipSet)
 	stats.Record(ctx, metrics.TipsetCollectionHeight.M(int64(height)))
 
 	if err := c.collectBlockheaderPoints(ctx, pl, tipset); err != nil {
-		log.Warnw("failed to record tipset", "height", height, "error", err)
+		log.Errorw("failed to record tipset", "height", height, "error", err, "tipset", tipset.Key())
 	}
 
 	if err := c.collectMessagePoints(ctx, pl, tipset); err != nil {
-		log.Warnw("failed to record messages", "height", height, "error", err)
+		log.Errorw("failed to record messages", "height", height, "error", err, "tipset", tipset.Key())
 	}
 
 	if err := c.collectStaterootPoints(ctx, pl, tipset); err != nil {
-		log.Warnw("failed to record state", "height", height, "error", err)
+		log.Errorw("failed to record state", "height", height, "error", err, "tipset", tipset.Key())
 	}
 
 	tsTimestamp := time.Unix(int64(tipset.MinTimestamp()), int64(0))
