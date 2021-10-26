@@ -31,7 +31,7 @@ func NewApiIpldStore(ctx context.Context, api apiIpldStoreApi, cacheSize int) (*
 		cacheSize: cacheSize,
 	}
 
-	cache, err := lru.New2Q(int(store.cacheSize))
+	cache, err := lru.New2Q(store.cacheSize)
 	if err != nil {
 		return nil, err
 	}

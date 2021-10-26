@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/beacon"
 	"github.com/filecoin-project/lotus/chain/wallet"
@@ -19,6 +20,7 @@ import (
 
 	tinflux "github.com/filecoin-project/lotus/tools/stats/influx"
 	tipldstore "github.com/filecoin-project/lotus/tools/stats/ipldstore"
+	tpoints "github.com/filecoin-project/lotus/tools/stats/points"
 	tsync "github.com/filecoin-project/lotus/tools/stats/sync"
 
 	influxdb "github.com/kpacha/opencensus-influxdb"
