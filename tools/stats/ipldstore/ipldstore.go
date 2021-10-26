@@ -18,8 +18,6 @@ type ApiIpldStore struct {
 	api       apiIpldStoreApi
 	cache     *lru.TwoQueueCache
 	cacheSize int
-	cacheHit  int64
-	cacheMiss int64
 }
 
 type apiIpldStoreApi interface {

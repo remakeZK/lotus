@@ -6,7 +6,7 @@ import (
 	"github.com/filecoin-project/lotus/api"
 )
 
-type headChangeStackBuffer struct {
+type HeadChangeStackBuffer struct {
 	buffer *list.List
 	size   int
 }
@@ -14,11 +14,11 @@ type headChangeStackBuffer struct {
 // NewHeadChangeStackBuffer buffer HeadChange events to avoid having to
 // deal with revert changes. Initialized size should be the average reorg
 // size + 1
-func NewHeadChangeStackBuffer(size int) *headChangeStackBuffer {
+func NewHeadChangeStackBuffer(size int) *HeadChangeStackBuffer {
 	buffer := list.New()
 	buffer.Init()
 
-	return &headChangeStackBuffer{
+	return &HeadChangeStackBuffer{
 		buffer: buffer,
 		size:   size,
 	}
@@ -27,7 +27,7 @@ func NewHeadChangeStackBuffer(size int) *headChangeStackBuffer {
 // Push adds a HeadChange to stack buffer. If the length of
 // the stack buffer grows larger than the initizlized size, the
 // oldest HeadChange is returned.
-func (h *headChangeStackBuffer) Push(hc *api.HeadChange) (rethc *api.HeadChange) {
+func (h *HeadChangeStackBuffer) Push(hc *api.HeadChange) (rethc *api.HeadChange) {
 	if h.buffer.Len() >= h.size {
 		var ok bool
 
@@ -48,7 +48,7 @@ func (h *headChangeStackBuffer) Push(hc *api.HeadChange) (rethc *api.HeadChange)
 }
 
 // Pop removes the last added HeadChange
-func (h *headChangeStackBuffer) Pop() {
+func (h *HeadChangeStackBuffer) Pop() {
 	el := h.buffer.Back()
 	if el != nil {
 		h.buffer.Remove(el)

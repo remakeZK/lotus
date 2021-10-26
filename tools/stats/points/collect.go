@@ -41,7 +41,6 @@ type ChainPointCollector struct {
 	api              LotusApi
 	store            adt.Store
 	actorDigestCache *lru.TwoQueueCache
-	influxDatabase   string
 }
 
 func NewChainPointCollector(ctx context.Context, store adt.Store, api LotusApi) (*ChainPointCollector, error) {
