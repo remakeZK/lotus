@@ -10,11 +10,14 @@ import (
 
 func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *types.TipSet,
 	shutdown chan struct{},
-	height int) error {
+	height, empty int) error {
 	defer close(shutdown)
 
 	tschain := []*types.TipSet{ts}
 	for ts.Height() != 0 {
+		if ts.Height() < abi.ChainEpoch(empty) {
+			break
+		}
 		next, err := sm.cs.LoadTipSet(ts.Parents())
 		if err != nil {
 			return err
