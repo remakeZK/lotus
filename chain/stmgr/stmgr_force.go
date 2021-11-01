@@ -27,6 +27,7 @@ func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *
 		ts = next
 	}
 
+	flag := true
 	lastState := tschain[len(tschain)-1].ParentState()
 	for i := len(tschain) - 1; i >= 0; i-- {
 		select {
@@ -36,12 +37,15 @@ func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *
 		}
 		cur := tschain[i]
 		if cur.Height() < abi.ChainEpoch(height) {
-			lastState = cur.ParentState()
 			continue
+		}
+		if flag {
+			lastState = cur.ParentState()
+			flag = false
 		}
 		log.Infof("computing state (height: %d, ts=%s)", cur.Height(), cur.Cids())
 		if cur.ParentState() != lastState {
-			return fmt.Errorf("tipset chain had state mismatch at height %d", cur.Height())
+			return fmt.Errorf("tipset chain had state mismatch at height %d, cur.ParentState %s lastState %s", cur.Height(), cur.ParentState(), lastState)
 		}
 		st, _, err := sm.TipSetState(ctx, cur)
 		if err != nil {
