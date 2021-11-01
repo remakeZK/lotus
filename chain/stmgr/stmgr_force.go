@@ -36,6 +36,7 @@ func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *
 		}
 		cur := tschain[i]
 		if cur.Height() < abi.ChainEpoch(height) {
+			lastState = cur.ParentState()
 			continue
 		}
 		log.Infof("computing state (height: %d, ts=%s)", cur.Height(), cur.Cids())
