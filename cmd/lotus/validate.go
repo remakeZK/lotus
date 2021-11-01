@@ -65,8 +65,7 @@ var ValidateCmd = &cli.Command{
 			return xerrors.Errorf("repo init error: %w", err)
 		}
 
-		ValidateChain(cctx.Context, r, cctx.String("snapshot"), cctx.Int("start-height"), cctx.Int("empty-height"), cctx.Int("lru-cache"))
-		return nil
+		return ValidateChain(cctx.Context, r, cctx.String("snapshot"), cctx.Int("start-height"), cctx.Int("empty-height"), cctx.Int("lru-cache"))
 	},
 }
 
