@@ -41,6 +41,7 @@ var ValidateCmd = &cli.Command{
 			Name:     "empty-height",
 			Usage:    "from which height we don't need flush all data",
 			Required: true,
+			Value:    0,
 		},
 		&cli.StringFlag{
 			Name:     "snapshot",
@@ -64,12 +65,12 @@ var ValidateCmd = &cli.Command{
 			return xerrors.Errorf("repo init error: %w", err)
 		}
 
-		ValidateChain(cctx.Context, r, cctx.String("snapshot"), cctx.Int("start-height"), cctx.Int("lru-cache"))
+		ValidateChain(cctx.Context, r, cctx.String("snapshot"), cctx.Int("start-height"), cctx.Int("empty-height"), cctx.Int("lru-cache"))
 		return nil
 	},
 }
 
-func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, lruSize int) error {
+func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, emptyHeight, lruSize int) error {
 	var rd io.Reader
 	var err error
 	fname, err = homedir.Expand(fname)
@@ -176,7 +177,7 @@ func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, 
 
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	log.Infof("validating imported chain...")
-	if err := stm.ValidateChainFromSpecialHeight(ctx, ts, shutdown, startHeight); err != nil {
+	if err := stm.ValidateChainFromSpecialHeight(ctx, ts, shutdown, startHeight, emptyHeight); err != nil {
 		return xerrors.Errorf("chain validation failed: %w", err)
 	}
 
