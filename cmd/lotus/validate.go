@@ -132,9 +132,9 @@ func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, 
 		return xerrors.Errorf("importing chain failed: %w", err)
 	}
 
-	if err := cst.FlushValidationCache(); err != nil {
-		return xerrors.Errorf("flushing validation cache failed: %w", err)
-	}
+	// if err := cst.FlushValidationCache(); err != nil {
+	//     return xerrors.Errorf("flushing validation cache failed: %w", err)
+	// }
 
 	gb, err := cst.GetTipsetByHeight(ctx, 0, ts, true)
 	if err != nil {
