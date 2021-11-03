@@ -32,6 +32,7 @@ func main() {
 		backupCmd,
 		configCmd,
 		ValidateCmd,
+		SpecialCmd,
 	}
 	if AdvanceBlockCmd != nil {
 		local = append(local, AdvanceBlockCmd)
