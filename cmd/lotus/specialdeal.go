@@ -77,11 +77,14 @@ func ValidateTipset(ctx context.Context, r repo.Repo, cidString string) error {
 		return fmt.Errorf("importing chain failed: %w", err)
 	}
 
-	st, _, err := stm.TipSetState(ctx, ts)
+	tss, err := cst.LoadTipSet(ts.Parents())
+	if err != nil {
+		return fmt.Errorf("load tipset failed: %w", err)
+	}
+	st, _, err := stm.TipSetState(ctx, tss)
 	if err != nil {
 		return fmt.Errorf("bad tipset calculating: %w", err)
 	}
-
-	fmt.Println("tipset state", st)
+	fmt.Println("tipset state", st, ts.ParentState())
 	return nil
 }
