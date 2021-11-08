@@ -168,6 +168,96 @@ func (cs *ChainStore) WalkSnapshot(ctx context.Context, ts *types.TipSet, inclRe
 	return nil
 }
 
+func (cs *ChainStore) ForceChainExport(ctx context.Context, ts *types.TipSet, start, end abi.ChainEpoch, cb func(cid.Cid) error) error {
+	if ts == nil {
+		ts = cs.GetHeaviestTipSet()
+	}
+
+	seen := cid.NewSet()
+	walked := cid.NewSet()
+
+	blocksToWalk := ts.Cids()
+	currentMinHeight := ts.Height()
+
+	walkChain := func(blk cid.Cid) error {
+		if !seen.Visit(blk) {
+			return nil
+		}
+
+		if err := cb(blk); err != nil {
+			return err
+		}
+
+		data, err := cs.chainBlockstore.Get(blk)
+		if err != nil {
+			return xerrors.Errorf("getting block: %w", err)
+		}
+
+		var b types.BlockHeader
+		if err := b.UnmarshalCBOR(bytes.NewBuffer(data.RawData())); err != nil {
+			return xerrors.Errorf("unmarshaling block header (cid=%s): %w", blk, err)
+		}
+
+		if currentMinHeight > b.Height {
+			currentMinHeight = b.Height
+			if currentMinHeight%builtin.EpochsInDay == 0 {
+				log.Infow("export", "height", currentMinHeight)
+			}
+		}
+
+		var cids []cid.Cid
+		if b.Height >= start && b.Height <= end {
+			if walked.Visit(b.Messages) {
+				mcids, err := recurseLinks(cs.chainBlockstore, walked, b.Messages, []cid.Cid{b.Messages})
+				if err != nil {
+					return xerrors.Errorf("recursing messages failed: %w", err)
+				}
+				cids = mcids
+			}
+		}
+
+		if b.Height > 0 {
+			for _, p := range b.Parents {
+				blocksToWalk = append(blocksToWalk, p)
+			}
+		} else {
+			// include the genesis block
+			cids = append(cids, b.Parents...)
+		}
+
+		out := cids
+
+		for _, c := range out {
+			if seen.Visit(c) {
+				if c.Prefix().Codec != cid.DagCBOR {
+					continue
+				}
+
+				if err := cb(c); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	log.Infow("export started")
+	exportStart := build.Clock.Now()
+
+	for len(blocksToWalk) > 0 {
+		next := blocksToWalk[0]
+		blocksToWalk = blocksToWalk[1:]
+		if err := walkChain(next); err != nil {
+			return xerrors.Errorf("walk chain failed: %w", err)
+		}
+	}
+
+	log.Infow("export finished", "duration", build.Clock.Now().Sub(exportStart).Seconds())
+
+	return nil
+}
+
 func recurseLinks(bs bstore.Blockstore, walked *cid.Set, root cid.Cid, in []cid.Cid) ([]cid.Cid, error) {
 	if root.Prefix().Codec != cid.DagCBOR {
 		return in, nil
