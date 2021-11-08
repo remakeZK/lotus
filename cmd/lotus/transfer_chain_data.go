@@ -51,7 +51,7 @@ var Transfermd = &cli.Command{
 		}
 
 		err = r.Init(repo.FullNode)
-		if err == nil || err != repo.ErrRepoExists {
+		if err != nil && err != repo.ErrRepoExists {
 			return fmt.Errorf("src repo error: %w", err)
 		}
 
