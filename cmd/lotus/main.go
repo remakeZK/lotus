@@ -34,6 +34,7 @@ func main() {
 		ValidateCmd,
 		SpecialCmd,
 		Transfermd,
+		Transfermd1,
 	}
 	if AdvanceBlockCmd != nil {
 		local = append(local, AdvanceBlockCmd)
