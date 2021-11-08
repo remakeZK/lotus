@@ -102,8 +102,6 @@ var Transfermd = &cli.Command{
 
 		log.Info("start, end height", start, end)
 
-		tss := []*types.TipSet{}
-
 		lr1, err := rd.Lock(repo.FullNode)
 		if err != nil {
 			return err
@@ -122,16 +120,6 @@ var Transfermd = &cli.Command{
 
 		unionBs := blockstore.Union(cst.ChainBlockstore(), cst.StateBlockstore())
 		cst1 := store.NewChainStore(bs1, bs1, mds1, filcns.Weight, j)
-
-		for ts.Height() >= abi.ChainEpoch(start) {
-			if ts.Height() <= abi.ChainEpoch(end) {
-				tss = append(tss, ts)
-			}
-			ts, err = cst.LoadTipSet(ts.Parents())
-			if err != nil {
-				return fmt.Errorf("load tipset from src failed: %w", err)
-			}
-		}
 
 		return cst.ForceChainExport(cctx.Context, ts, abi.ChainEpoch(start), abi.ChainEpoch(end), func(c cid.Cid) error {
 			blk, err := unionBs.Get(c)
