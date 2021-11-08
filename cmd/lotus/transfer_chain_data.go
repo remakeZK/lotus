@@ -212,11 +212,6 @@ var Transfermd1 = &cli.Command{
 			return err
 		}
 
-		ts, err := cst.LoadTipSet(types.NewTipSetKey(cids...))
-		if err != nil {
-			return fmt.Errorf("importing chain failed: %w", err)
-		}
-
 		lr1, err := rd.Lock(repo.FullNode)
 		if err != nil {
 			return err
