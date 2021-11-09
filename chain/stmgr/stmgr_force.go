@@ -10,12 +10,12 @@ import (
 
 func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *types.TipSet,
 	shutdown chan struct{},
-	height, empty int) error {
+	start, end int) error {
 	defer close(shutdown)
 
 	tschain := []*types.TipSet{ts}
 	for ts.Height() != 0 {
-		if ts.Height() < abi.ChainEpoch(empty) {
+		if ts.Height() < abi.ChainEpoch(start) {
 			break
 		}
 		next, err := sm.cs.LoadTipSet(ts.Parents())
@@ -27,8 +27,8 @@ func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *
 		ts = next
 	}
 
-	flag := true
 	lastState := tschain[len(tschain)-1].ParentState()
+
 	for i := len(tschain) - 1; i >= 0; i-- {
 		select {
 		case <-ctx.Done():
@@ -36,12 +36,8 @@ func (sm *StateManager) ValidateChainFromSpecialHeight(ctx context.Context, ts *
 		default:
 		}
 		cur := tschain[i]
-		if cur.Height() < abi.ChainEpoch(height) {
-			continue
-		}
-		if flag {
-			lastState = cur.ParentState()
-			flag = false
+		if cur.Height() > abi.ChainEpoch(end) {
+			break
 		}
 		log.Infof("computing state (height: %d, ts=%s)", cur.Height(), cur.Cids())
 		if cur.ParentState() != lastState {

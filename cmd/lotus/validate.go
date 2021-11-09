@@ -3,10 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"syscall"
+
+	lru "github.com/hashicorp/golang-lru"
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/consensus/filcns"
@@ -14,17 +19,11 @@ import (
 	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/vm"
+	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper"
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/fsjournal"
 	"github.com/filecoin-project/lotus/node/repo"
-	lru "github.com/hashicorp/golang-lru"
-	blocks "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-car"
-	"github.com/mitchellh/go-homedir"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 )
 
 // ValidateCmd is the command compute date already exist in store
@@ -38,14 +37,14 @@ var ValidateCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.IntFlag{
-			Name:     "empty-height",
+			Name:     "end-height",
 			Usage:    "from which height we don't need flush all data",
 			Required: true,
 			Value:    0,
 		},
 		&cli.StringFlag{
-			Name:     "snapshot",
-			Usage:    "the file path of snapshot",
+			Name:     "ts",
+			Usage:    "ts cid in block store",
 			Required: true,
 		},
 		&cli.Int64Flag{
@@ -65,30 +64,11 @@ var ValidateCmd = &cli.Command{
 			return xerrors.Errorf("repo init error: %w", err)
 		}
 
-		return ValidateChain(cctx.Context, r, cctx.String("snapshot"), cctx.Int("start-height"), cctx.Int("empty-height"), cctx.Int("lru-cache"))
+		return ValidateChain(cctx.Context, r, cctx.String("ts"), cctx.Int("start-height"), cctx.Int("end-height"), cctx.Int("lru-cache"))
 	},
 }
 
-func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, emptyHeight, lruSize int) error {
-	var rd io.Reader
-	var err error
-	fname, err = homedir.Expand(fname)
-	if err != nil {
-		return err
-	}
-
-	fi, err := os.Open(fname)
-	if err != nil {
-		return err
-	}
-	defer fi.Close() //nolint:errcheck
-
-	// st, err := os.Stat(fname)
-	// if err != nil {
-	//     return err
-	// }
-
-	rd = fi
+func ValidateChain(ctx context.Context, r repo.Repo, tsc string, startHeight, endHeight, lruSize int) error {
 	lr, err := r.Lock(repo.FullNode)
 	if err != nil {
 		return err
@@ -120,14 +100,12 @@ func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, 
 	}
 
 	cst := store.NewChainStore(bs, stateBs, mds, filcns.Weight, j)
+	cids, err := lcli.ParseTipSetString(tsc)
 
-	log.Infof("importing chain from %s...", fname)
-
-	rh, err := car.NewCarReader(rd)
 	if err != nil {
-		return fmt.Errorf("new car reader failed: %w", err)
+		return fmt.Errorf("failed to parse tipset string: %w", err)
 	}
-	ts, err := cst.LoadTipSet(types.NewTipSetKey(rh.Header.Roots...))
+	ts, err := cst.LoadTipSet(types.NewTipSetKey(cids...))
 	if err != nil {
 		return xerrors.Errorf("importing chain failed: %w", err)
 	}
@@ -176,7 +154,7 @@ func ValidateChain(ctx context.Context, r repo.Repo, fname string, startHeight, 
 
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	log.Infof("validating imported chain...")
-	if err := stm.ValidateChainFromSpecialHeight(ctx, ts, shutdown, startHeight, emptyHeight); err != nil {
+	if err := stm.ValidateChainFromSpecialHeight(ctx, ts, shutdown, startHeight, endHeight); err != nil {
 		return xerrors.Errorf("chain validation failed: %w", err)
 	}
 
