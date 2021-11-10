@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"sync"
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-car"
@@ -168,19 +169,17 @@ func (cs *ChainStore) WalkSnapshot(ctx context.Context, ts *types.TipSet, inclRe
 	return nil
 }
 
-func (cs *ChainStore) ForceChainExport(ctx context.Context, ts *types.TipSet, start, end abi.ChainEpoch, cb func(cid.Cid) error) error {
-	if ts == nil {
-		ts = cs.GetHeaviestTipSet()
-	}
-
+func (cs *ChainStore) ForceChainExport(ctx context.Context, ts []*types.TipSet, cb func(cid.Cid) error) error {
 	seen := cid.NewSet()
 	walked := cid.NewSet()
-
-	blocksToWalk := ts.Cids()
-	currentMinHeight := ts.Height()
+	seenlk := &sync.Mutex{}
+	walkedlk := &sync.Mutex{}
 
 	walkChain := func(blk cid.Cid) error {
-		if !seen.Visit(blk) {
+		seenlk.Lock()
+		see := seen.Visit(blk)
+		seenlk.Unlock()
+		if !see {
 			return nil
 		}
 
@@ -198,37 +197,25 @@ func (cs *ChainStore) ForceChainExport(ctx context.Context, ts *types.TipSet, st
 			return xerrors.Errorf("unmarshaling block header (cid=%s): %w", blk, err)
 		}
 
-		if currentMinHeight > b.Height {
-			currentMinHeight = b.Height
-			if currentMinHeight%builtin.EpochsInDay == 0 {
-				log.Infow("export", "height", currentMinHeight)
-			}
-		}
-
 		var cids []cid.Cid
-		if b.Height >= start && b.Height <= end {
-			if walked.Visit(b.Messages) {
-				mcids, err := recurseLinks(cs.chainBlockstore, walked, b.Messages, []cid.Cid{b.Messages})
-				if err != nil {
-					return xerrors.Errorf("recursing messages failed: %w", err)
-				}
-				cids = mcids
+		walkedlk.Lock()
+		w := walked.Visit(b.Messages)
+		walkedlk.Unlock()
+		if w {
+			mcids, err := recurseLinksForce(cs.chainBlockstore, walked, walkedlk, b.Messages, []cid.Cid{b.Messages})
+			if err != nil {
+				return xerrors.Errorf("recursing messages failed: %w", err)
 			}
-		}
-
-		if b.Height > 0 {
-			for _, p := range b.Parents {
-				blocksToWalk = append(blocksToWalk, p)
-			}
-		} else {
-			// include the genesis block
-			cids = append(cids, b.Parents...)
+			cids = mcids
 		}
 
 		out := cids
 
 		for _, c := range out {
-			if seen.Visit(c) {
+			seenlk.Lock()
+			see := seen.Visit(c)
+			seenlk.Unlock()
+			if see {
 				if c.Prefix().Codec != cid.DagCBOR {
 					continue
 				}
@@ -244,15 +231,26 @@ func (cs *ChainStore) ForceChainExport(ctx context.Context, ts *types.TipSet, st
 
 	log.Infow("export started")
 	exportStart := build.Clock.Now()
+	wg := sync.WaitGroup{}
+	wg.Add(len(ts))
+	limitChan := make(chan struct{}, 16)
+	for _, t := range ts {
+		limitChan <- struct{}{}
+		go func(ts *types.TipSet) {
 
-	for len(blocksToWalk) > 0 {
-		next := blocksToWalk[0]
-		blocksToWalk = blocksToWalk[1:]
-		if err := walkChain(next); err != nil {
-			return xerrors.Errorf("walk chain failed: %w", err)
-		}
+			defer wg.Done()
+			defer func() {
+				<-limitChan
+			}()
+			for _, i := range ts.Cids() {
+				err := walkChain(i)
+				if err != nil {
+					log.Error("walk chain error: %w", err)
+				}
+			}
+		}(t)
 	}
-
+	wg.Wait()
 	log.Infow("export finished", "duration", build.Clock.Now().Sub(exportStart).Seconds())
 
 	return nil
@@ -277,6 +275,45 @@ func recurseLinks(bs bstore.Blockstore, walked *cid.Set, root cid.Cid, in []cid.
 
 		// traversed this already...
 		if !walked.Visit(c) {
+			return
+		}
+
+		in = append(in, c)
+		var err error
+		in, err = recurseLinks(bs, walked, c, in)
+		if err != nil {
+			rerr = err
+		}
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("scanning for links failed: %w", err)
+	}
+
+	return in, rerr
+}
+
+func recurseLinksForce(bs bstore.Blockstore, walked *cid.Set, walklk *sync.Mutex, root cid.Cid, in []cid.Cid) ([]cid.Cid, error) {
+	if root.Prefix().Codec != cid.DagCBOR {
+		return in, nil
+	}
+
+	data, err := bs.Get(root)
+	if err != nil {
+		return nil, xerrors.Errorf("recurse links get (%s) failed: %w", root, err)
+	}
+
+	var rerr error
+	err = cbg.ScanForLinks(bytes.NewReader(data.RawData()), func(c cid.Cid) {
+		if rerr != nil {
+			// No error return on ScanForLinks :(
+			return
+		}
+
+		walklk.Lock()
+		w := walked.Visit(c)
+		walklk.Unlock()
+		// traversed this already...
+		if !w {
 			return
 		}
 

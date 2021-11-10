@@ -121,7 +121,19 @@ var Transfermd = &cli.Command{
 		unionBs := blockstore.Union(cst.ChainBlockstore(), cst.StateBlockstore())
 		cst1 := store.NewChainStore(bs1, bs1, mds1, filcns.Weight, j)
 
-		return cst.ForceChainExport(cctx.Context, ts, abi.ChainEpoch(start), abi.ChainEpoch(end), func(c cid.Cid) error {
+		tss := []*types.TipSet{}
+
+		for ts.Height() >= abi.ChainEpoch(start) {
+			if ts.Height() <= abi.ChainEpoch(end) {
+				tss = append(tss, ts)
+			}
+			ts, err = cst.LoadTipSet(ts.Parents())
+			if err != nil {
+				return fmt.Errorf("load ts failed: %w", err)
+			}
+		}
+
+		return cst.ForceChainExport(cctx.Context, tss, func(c cid.Cid) error {
 			blk, err := unionBs.Get(c)
 			if err != nil {
 				return fmt.Errorf("get block from unionBs failed: %w", err)
