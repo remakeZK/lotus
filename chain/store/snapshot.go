@@ -319,7 +319,7 @@ func recurseLinksForce(bs bstore.Blockstore, walked *cid.Set, walklk *sync.Mutex
 
 		in = append(in, c)
 		var err error
-		in, err = recurseLinks(bs, walked, c, in)
+		in, err = recurseLinksForce(bs, walked, walklk, c, in)
 		if err != nil {
 			rerr = err
 		}
