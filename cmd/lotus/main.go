@@ -34,6 +34,7 @@ func main() {
 		ValidateCmd,
 		SpecialCmd,
 		Transfermd,
+		AutoTransfermd,
 		Transfermd1,
 	}
 	if AdvanceBlockCmd != nil {

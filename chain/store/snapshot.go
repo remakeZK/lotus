@@ -3,7 +3,10 @@ package store
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/ipfs/go-cid"
@@ -233,7 +236,15 @@ func (cs *ChainStore) ForceChainExport(ctx context.Context, ts []*types.TipSet, 
 	exportStart := build.Clock.Now()
 	wg := sync.WaitGroup{}
 	wg.Add(len(ts))
-	limitChan := make(chan struct{}, 16)
+	limit := 16
+	if s := os.Getenv("FORCE_IMPORT_LIMIT"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err != nil {
+			panic(fmt.Errorf("force import limit should be a number!: %w", err))
+		}
+		limit = i
+	}
+	limitChan := make(chan struct{}, limit)
 	for _, t := range ts {
 		limitChan <- struct{}{}
 		go func(ts *types.TipSet) {
