@@ -292,9 +292,15 @@ var AutoTransfermd = &cli.Command{
 		}
 		wg := sync.WaitGroup{}
 		wg.Add(len(tsSlice))
+		limitChan := make(chan struct{}, 4)
+
 		for i := range tsSlice {
+			limitChan <- struct{}{}
 			go func(tss []*types.TipSet, cst1 *store.ChainStore) {
-				defer wg.Done()
+				defer func() {
+					limitChan <- struct{}{}
+					wg.Done()
+				}()
 				cst.ForceChainExport(cctx.Context, tss, func(c cid.Cid) error {
 					blk, err := unionBs.Get(c)
 					if err != nil {
