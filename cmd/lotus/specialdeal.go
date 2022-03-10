@@ -15,6 +15,8 @@ import (
 	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper"
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/fsjournal"
+	"github.com/filecoin-project/lotus/node/modules"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/node/repo"
 )
 
@@ -44,6 +46,7 @@ var SpecialCmd = &cli.Command{
 }
 
 func ValidateTipset(ctx context.Context, r repo.Repo, cidString string) error {
+
 	lr, err := r.Lock(repo.FullNode)
 	if err != nil {
 		return err
@@ -64,9 +67,16 @@ func ValidateTipset(ctx context.Context, r repo.Repo, cidString string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open journal: %w", err)
 	}
-
 	cst := store.NewChainStore(bs, bs, mds, filcns.Weight, j)
-	stm, err := stmgr.NewStateManager(cst, filcns.NewTipSetExecutor(), vm.Syscalls(ffiwrapper.ProofVerifier), filcns.DefaultUpgradeSchedule(), nil)
+
+	b, err := modules.RandomSchedule(modules.RandomBeaconParams{
+		Cs:          cst,
+		DrandConfig: modules.BuiltinDrandConfig(),
+	}, dtypes.AfterGenesisSet{})
+	if err != nil {
+		return err
+	}
+	stm, err := stmgr.NewStateManager(cst, filcns.NewTipSetExecutor(), vm.Syscalls(ffiwrapper.ProofVerifier), filcns.DefaultUpgradeSchedule(), b)
 
 	cids, err := lcli.ParseTipSetString(cidString)
 	if err != nil {
