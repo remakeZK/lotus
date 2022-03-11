@@ -285,8 +285,8 @@ var AutoTransfermd = &cli.Command{
 		for i := range tss {
 			h := int(tss[i].Height())
 			tsSlice[h/segSize] = append(tsSlice[h/segSize], tss[i])
-			hDelta := (int(h) - 1000) / segSize
-			if hDelta != h {
+			hDelta := (h - 1000) / segSize
+			if hDelta != h/segSize {
 				tsSlice[hDelta] = append(tsSlice[hDelta], tss[i])
 			}
 		}
