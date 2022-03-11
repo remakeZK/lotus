@@ -176,16 +176,11 @@ func ValidateChainData(ctx context.Context, r repo.Repo, cidString string) error
 	//	return fmt.Errorf("bad tipset calculating: %w", err)
 	//}
 	//fmt.Println("tipset state", st, ts.ParentState())
-	bh := tss.Blocks()[0]
+	//bh := tss.Blocks()[0]
 	for {
-		if len(bh.Parents) == 0 {
-			fmt.Printf("chain end at %d\n", bh.Height)
-			return nil
-		}
-
-		bh, err = cst.GetBlock(bh.Parents[0])
+		tss, err = cst.LoadTipSet(tss.Parents())
 		if err == blockstore.ErrNotFound {
-			fmt.Printf("chain end at %d\n", bh.Height)
+			fmt.Printf("chain end at %d\n", tss.Height())
 			return nil
 		} else if err != nil {
 			panic(err)
