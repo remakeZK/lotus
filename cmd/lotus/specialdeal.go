@@ -185,5 +185,7 @@ func ValidateChainData(ctx context.Context, r repo.Repo, cidString string) error
 		} else if err != nil {
 			panic(err)
 		}
+
+		fmt.Printf("loaded chain at %d\n", tss.Height())
 	}
 }
