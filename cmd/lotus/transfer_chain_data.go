@@ -298,7 +298,7 @@ var AutoTransfermd = &cli.Command{
 			limitChan <- struct{}{}
 			go func(tss []*types.TipSet, cst1 *store.ChainStore) {
 				defer func() {
-					limitChan <- struct{}{}
+					<-limitChan
 					wg.Done()
 				}()
 				cst.ForceChainExport(cctx.Context, tss, func(c cid.Cid) error {
