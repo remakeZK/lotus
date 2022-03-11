@@ -34,6 +34,7 @@ func main() {
 		ValidateCmd,
 		SpecialCmd,
 		Transfermd,
+		SpecialChainDataCmd,
 		AutoTransfermd,
 		Transfermd1,
 	}
